@@ -335,9 +335,11 @@ public class MainActivity extends Activity {
                 "&am="+String.format(Locale.US,"%.2f",finalTotal)+
                 "&cu=INR";
 
-            Bitmap bitmap = new QRCodeWriter().encode(
-                link, BarcodeFormat.QR_CODE,500,500
-            ).let();
+            
+Bitmap bitmap = new QRCodeWriter().encode(
+    link, BarcodeFormat.QR_CODE,500,500
+).let();
+
 
         } catch(Exception e) {
             toast("QR generation failed");
