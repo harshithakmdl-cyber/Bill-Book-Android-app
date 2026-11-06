@@ -1,4 +1,7 @@
 package com.harshi.billbook;
+import com.google.zxing.*;
+import com.google.zxing.common.BitMatrix;
+import com.google.zxing.qrcode.QRCodeWriter;
 
 import android.app.*;
 import android.os.Bundle;
