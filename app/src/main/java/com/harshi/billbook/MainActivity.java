@@ -1,367 +1,774 @@
-
 package com.harshi.billbook;
 
 import android.app.*;
-import android.os.*;
+import android.os.Bundle;
 import android.content.*;
 import android.graphics.*;
 import android.graphics.drawable.*;
-import android.net.Uri;
 import android.view.*;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
+
 import org.json.*;
-import com.google.zxing.*;
-import com.google.zxing.qrcode.QRCodeWriter;
-import java.util.*;
+
 import java.text.*;
-import java.io.*;
+import java.util.*;
+
+import com.google.zxing.*;
+import com.google.zxing.common.BitMatrix;
 
 public class MainActivity extends Activity {
 
-    LinearLayout root, itemsLayout;
-    EditText productName, productPrice, productQty;
-    EditText discountInput, taxInput, upiInput;
-    TextView totalText, subtotalText;
+    LinearLayout root, itemsBox;
+
+    EditText customer, phone, product, price, qty;
+    EditText discount, tax, upi;
+
+    TextView totalView, summary;
+
+    ArrayList<Item> items = new ArrayList<>();
+
     SharedPreferences prefs;
 
-    ArrayList<JSONObject> billItems = new ArrayList<>();
-    double finalTotal = 0;
-    String billText = "";
+    double lastTotal = 0;
 
-    @Override
-    protected void onCreate(Bundle b) {
-        super.onCreate(b);
+    class Item {
 
-        prefs = getSharedPreferences("BillBook", MODE_PRIVATE);
+        String name;
+        double price;
+        int qty;
 
-        ScrollView scroll = new ScrollView(this);
-        root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(20,20,20,20);
-        scroll.addView(root);
-        setContentView(scroll);
+        Item(String n, double p, int q) {
+            name = n;
+            price = p;
+            qty = q;
+        }
 
-        title("BILL BOOK");
+        double total() {
+            return price * qty;
+        }
 
-        productName = input("Product name");
-        productPrice = input("Price (₹)");
-        productQty = input("Quantity");
+        JSONObject json() throws JSONException {
 
-        productQty.setText("1");
+            JSONObject o = new JSONObject();
 
-        button("ADD ITEM TO BILL", v -> addItem());
+            o.put("name", name);
+            o.put("price", price);
+            o.put("qty", qty);
 
-        itemsLayout = new LinearLayout(this);
-        itemsLayout.setOrientation(LinearLayout.VERTICAL);
-        root.addView(itemsLayout);
-
-        discountInput = input("Discount (%)");
-        discountInput.setText("0");
-
-        taxInput = input("Tax (%)");
-        taxInput.setText("0");
-
-        subtotalText = text("Subtotal: ₹0.00", 20);
-        totalText = text("Total: ₹0.00", 25);
-
-        button("CALCULATE BILL", v -> calculate());
-
-        upiInput = input("Your UPI ID (example@upi)");
-
-        button("GENERATE UPI QR", v -> generateQR());
-
-        button("SAVE BILL", v -> saveBill());
-
-        button("SHARE BILL", v -> shareBill());
-
-        button("BILL HISTORY", v -> showHistory());
-
-        button("TODAY'S SALES", v -> showSales());
+            return o;
+        }
     }
 
-    void title(String s) {
-        TextView t = text(s,30);
-        root.addView(t);
+    @Override
+    public void onCreate(Bundle b) {
+
+        super.onCreate(b);
+
+        prefs = getSharedPreferences(
+                "billbook",
+                MODE_PRIVATE
+        );
+
+        buildUI();
+    }
+
+    int dp(float v) {
+
+        return (int) (
+                v * getResources()
+                        .getDisplayMetrics()
+                        .density + 0.5f
+        );
     }
 
     TextView text(String s, int size) {
+
         TextView t = new TextView(this);
+
         t.setText(s);
         t.setTextSize(size);
-        t.setPadding(0,12,0,12);
+        t.setTextColor(Color.rgb(30, 40, 50));
+
+        t.setPadding(
+                0,
+                dp(6),
+                0,
+                dp(6)
+        );
+
         return t;
     }
 
-    EditText input(String hint) {
+    EditText field(String hint) {
+
         EditText e = new EditText(this);
+
         e.setHint(hint);
-        root.addView(e);
+        e.setSingleLine(true);
+        e.setTextSize(16);
+
         return e;
     }
 
-    void button(String name, View.OnClickListener listener) {
+    Button button(String label, Runnable action) {
+
         Button b = new Button(this);
-        b.setText(name);
-        root.addView(b);
-        b.setOnClickListener(listener);
+
+        b.setText(label);
+
+        b.setOnClickListener(v -> action.run());
+
+        return b;
+    }
+
+    void buildUI() {
+
+        ScrollView scroll = new ScrollView(this);
+
+        root = new LinearLayout(this);
+
+        root.setOrientation(1);
+
+        root.setPadding(
+                dp(18),
+                dp(14),
+                dp(18),
+                dp(24)
+        );
+
+        root.setBackgroundColor(
+                Color.rgb(247, 249, 252)
+        );
+
+        scroll.addView(root);
+
+        setContentView(scroll);
+
+        root.addView(text("BILL BOOK", 26));
+
+        root.addView(
+                text("Create bills • Save sales • Share", 14)
+        );
+
+        customer = field("Customer name");
+
+        phone = field("Customer phone (optional)");
+
+        root.addView(customer);
+        root.addView(phone);
+
+        root.addView(text("Add product", 18));
+
+        product = field("Product name");
+
+        price = field("Price (₹)");
+
+        qty = field("Quantity");
+
+        qty.setText("1");
+
+        root.addView(product);
+        root.addView(price);
+        root.addView(qty);
+
+        root.addView(
+                button("＋ Add product", () -> addItem())
+        );
+
+        itemsBox = new LinearLayout(this);
+
+        itemsBox.setOrientation(1);
+
+        root.addView(itemsBox);
+
+        discount = field("Discount (%)");
+
+        discount.setText("0");
+
+        tax = field("Tax (%)");
+
+        tax.setText("0");
+
+        upi = field("UPI ID (for payment QR)");
+
+        root.addView(discount);
+        root.addView(tax);
+        root.addView(upi);
+
+        totalView = text("Total: ₹0.00", 22);
+
+        root.addView(totalView);
+
+        summary = text("No products added", 14);
+
+        root.addView(summary);
+
+        root.addView(
+                button("Save bill", () -> saveBill())
+        );
+
+        root.addView(
+                button("Share bill", () -> shareBill())
+        );
+
+        root.addView(
+                button("Show UPI QR", () -> showQR())
+        );
+
+        root.addView(
+                button("Bill history", () -> history())
+        );
+
+        root.addView(
+                button("Today's sales", () -> dailySales())
+        );
+
+        root.addView(
+                button("Clear current bill", () -> clearBill())
+        );
+    }
+
+    void addItem() {
+
+        String n = product.getText()
+                .toString()
+                .trim();
+
+        if (n.isEmpty()) {
+
+            toast("Enter product name");
+
+            return;
+        }
+
+        try {
+
+            double p = Double.parseDouble(
+                    price.getText().toString()
+            );
+
+            int q = Integer.parseInt(
+                    qty.getText().toString()
+            );
+
+            if (p < 0 || q < 1) {
+
+                throw new Exception();
+            }
+
+            items.add(
+                    new Item(n, p, q)
+            );
+
+            product.setText("");
+
+            price.setText("");
+
+            qty.setText("1");
+
+            renderItems();
+
+        } catch (Exception e) {
+
+            toast("Enter a valid price and quantity");
+        }
+    }
+
+    void renderItems() {
+
+        itemsBox.removeAllViews();
+
+        for (int i = 0; i < items.size(); i++) {
+
+            final int index = i;
+
+            Item it = items.get(i);
+
+            LinearLayout row = new LinearLayout(this);
+
+            row.setOrientation(
+                    LinearLayout.HORIZONTAL
+            );
+
+            TextView t = text(
+                    it.name
+                            + "  ×"
+                            + it.qty
+                            + "   ₹"
+                            + money(it.total()),
+                    15
+            );
+
+            t.setLayoutParams(
+                    new LinearLayout.LayoutParams(
+                            0,
+                            -2,
+                            1
+                    )
+            );
+
+            row.addView(t);
+
+            Button x = new Button(this);
+
+            x.setText("Remove");
+
+            x.setOnClickListener(v -> {
+
+                items.remove(index);
+
+                renderItems();
+            });
+
+            row.addView(x);
+
+            itemsBox.addView(row);
+        }
+
+        updateTotal();
     }
 
     double number(EditText e) {
+
         try {
-            return Double.parseDouble(e.getText().toString());
-        } catch(Exception ex) {
+
+            return Double.parseDouble(
+                    e.getText().toString()
+            );
+
+        } catch (Exception ex) {
+
             return 0;
         }
     }
 
-    void addItem() {
-        String name = productName.getText().toString().trim();
-        double price = number(productPrice);
-        int qty = (int) number(productQty);
-
-        if(name.isEmpty() || price <= 0 || qty <= 0) {
-            toast("Enter valid product, price and quantity");
-            return;
-        }
-
-        JSONObject item = new JSONObject();
-
-        try {
-            item.put("name",name);
-            item.put("price",price);
-            item.put("qty",qty);
-        } catch(Exception ignored) {}
-
-        billItems.add(item);
-
-        TextView row = text(
-            name + " × " + qty + " = ₹" +
-            String.format(Locale.US,"%.2f",price*qty),18
-        );
-
-        itemsLayout.addView(row);
-
-        productName.setText("");
-        productPrice.setText("");
-        productQty.setText("1");
-
-        calculate();
-    }
-
     double subtotal() {
-        double sum = 0;
 
-        for(JSONObject item : billItems) {
-            sum += item.optDouble("price") *
-                   item.optInt("qty");
+        double s = 0;
+
+        for (Item i : items) {
+
+            s += i.total();
         }
 
-        return sum;
+        return s;
     }
 
-    void calculate() {
-        double sub = subtotal();
-        double discount = Math.max(0,Math.min(100,number(discountInput)));
-        double tax = Math.max(0,number(taxInput));
+    double total() {
 
-        double afterDiscount = sub * (1-discount/100);
-        finalTotal = afterDiscount * (1+tax/100);
+        double s = subtotal();
 
-        subtotalText.setText(
-            "Subtotal: ₹" +
-            String.format(Locale.US,"%.2f",sub)
-        );
+        s -= s * Math.max(
+                0,
+                Math.min(100, number(discount))
+        ) / 100;
 
-        totalText.setText(
-            "TOTAL: ₹" +
-            String.format(Locale.US,"%.2f",finalTotal)
-        );
+        s += s * Math.max(
+                0,
+                number(tax)
+        ) / 100;
 
-        billText = buildBill();
+        return Math.max(0, s);
     }
 
-    String buildBill() {
-        StringBuilder s = new StringBuilder();
+    void updateTotal() {
 
-        s.append("BILL BOOK\n");
-        s.append("Date: ").append(date()).append("\n\n");
+        lastTotal = total();
 
-        for(JSONObject item : billItems) {
-            double p = item.optDouble("price");
-            int q = item.optInt("qty");
+        totalView.setText(
+                "Total: ₹" + money(lastTotal)
+        );
 
-            s.append(item.optString("name"))
-             .append(" × ").append(q)
-             .append(" = ₹")
-             .append(String.format(Locale.US,"%.2f",p*q))
-             .append("\n");
+        summary.setText(
+                "Items: "
+                        + items.size()
+                        + "   Subtotal: ₹"
+                        + money(subtotal())
+        );
+    }
+
+    String money(double d) {
+
+        return String.format(
+                Locale.US,
+                "%.2f",
+                d
+        );
+    }
+
+    String billText() {
+
+        StringBuilder s = new StringBuilder("BILL BOOK\n");
+
+        s.append("Date: ")
+                .append(
+                        new SimpleDateFormat(
+                                "dd-MM-yyyy HH:mm",
+                                Locale.getDefault()
+                        ).format(new Date())
+                )
+                .append("\n");
+
+        s.append("Customer: ")
+                .append(customer.getText())
+                .append("\n");
+
+        if (phone.getText().length() > 0) {
+
+            s.append("Phone: ")
+                    .append(phone.getText())
+                    .append("\n");
         }
 
-        s.append("\nSubtotal: ₹")
-         .append(String.format(Locale.US,"%.2f",subtotal()));
+        s.append("--------------------\n");
 
-        s.append("\nDiscount: ")
-         .append(number(discountInput)).append("%");
+        for (Item i : items) {
 
-        s.append("\nTax: ")
-         .append(number(taxInput)).append("%");
+            s.append(i.name)
+                    .append("  ")
+                    .append(i.qty)
+                    .append(" × ₹")
+                    .append(money(i.price))
+                    .append(" = ₹")
+                    .append(money(i.total()))
+                    .append("\n");
+        }
 
-        s.append("\nTOTAL: ₹")
-         .append(String.format(Locale.US,"%.2f",finalTotal));
+        s.append("Subtotal: ₹")
+                .append(money(subtotal()))
+                .append("\n");
+
+        s.append("Discount: ")
+                .append(money(number(discount)))
+                .append("%\n");
+
+        s.append("Tax: ")
+                .append(money(number(tax)))
+                .append("%\n");
+
+        s.append("TOTAL: ₹")
+                .append(money(total()));
 
         return s.toString();
     }
 
-    String date() {
-        return new SimpleDateFormat(
-            "yyyy-MM-dd HH:mm:ss",Locale.US
-        ).format(new Date());
-    }
-
     void saveBill() {
-        if(billItems.isEmpty()) {
-            toast("Add items first");
+
+        if (items.isEmpty()) {
+
+            toast("Add at least one product");
+
             return;
         }
 
-        calculate();
-
         try {
-            JSONArray history = new JSONArray(
-                prefs.getString("history","[]")
+
+            JSONArray all = new JSONArray(
+                    prefs.getString("bills", "[]")
             );
 
             JSONObject bill = new JSONObject();
-            bill.put("date",date());
-            bill.put("total",finalTotal);
-            bill.put("items",new JSONArray(billItems.toString()));
-            bill.put("text",billText);
 
-            history.put(bill);
+            bill.put(
+                    "date",
+                    System.currentTimeMillis()
+            );
+
+            bill.put(
+                    "customer",
+                    customer.getText().toString()
+            );
+
+            bill.put(
+                    "total",
+                    total()
+            );
+
+            bill.put(
+                    "text",
+                    billText()
+            );
+
+            JSONArray arr = new JSONArray();
+
+            for (Item i : items) {
+
+                arr.put(i.json());
+            }
+
+            bill.put("items", arr);
+
+            all.put(bill);
 
             prefs.edit()
-                .putString("history",history.toString())
-                .apply();
+                    .putString("bills", all.toString())
+                    .apply();
 
-            toast("Bill saved successfully");
+            toast("Bill saved offline");
 
-        } catch(Exception e) {
+        } catch (Exception e) {
+
             toast("Could not save bill");
         }
     }
 
-    void showHistory() {
+    void shareBill() {
+
+        if (items.isEmpty()) {
+
+            toast("Add products first");
+
+            return;
+        }
+
+        Intent i = new Intent(
+                Intent.ACTION_SEND
+        );
+
+        i.setType("text/plain");
+
+        i.putExtra(
+                Intent.EXTRA_SUBJECT,
+                "Bill Book receipt"
+        );
+
+        i.putExtra(
+                Intent.EXTRA_TEXT,
+                billText()
+        );
+
+        startActivity(
+                Intent.createChooser(
+                        i,
+                        "Share bill"
+                )
+        );
+    }
+
+    void showQR() {
+
+        String id = upi.getText()
+                .toString()
+                .trim();
+
+        if (id.isEmpty()) {
+
+            toast("Enter your UPI ID first");
+
+            return;
+        }
+
         try {
-            JSONArray history = new JSONArray(
-                prefs.getString("history","[]")
+
+            String link =
+                    "upi://pay?pa="
+                            + java.net.URLEncoder.encode(
+                                    id,
+                                    "UTF-8"
+                            )
+                            + "&pn=BillBook"
+                            + "&am="
+                            + money(total())
+                            + "&cu=INR";
+
+            BitMatrix matrix =
+                    new QRCodeWriter().encode(
+                            link,
+                            BarcodeFormat.QR_CODE,
+                            600,
+                            600
+                    );
+
+            Bitmap bmp = Bitmap.createBitmap(
+                    600,
+                    600,
+                    Bitmap.Config.RGB_565
+            );
+
+            for (int x = 0; x < 600; x++) {
+
+                for (int y = 0; y < 600; y++) {
+
+                    bmp.setPixel(
+                            x,
+                            y,
+                            matrix.get(x, y)
+                                    ? Color.BLACK
+                                    : Color.WHITE
+                    );
+                }
+            }
+
+            ImageView image = new ImageView(this);
+
+            image.setImageBitmap(bmp);
+
+            new AlertDialog.Builder(this)
+                    .setTitle("UPI payment QR")
+                    .setView(image)
+                    .setPositiveButton(
+                            "Close",
+                            null
+                    )
+                    .show();
+
+        } catch (Exception e) {
+
+            toast(
+                    "QR generation failed. Check ZXing dependency."
+            );
+        }
+    }
+
+    void history() {
+
+        try {
+
+            JSONArray a = new JSONArray(
+                    prefs.getString("bills", "[]")
             );
 
             StringBuilder s = new StringBuilder();
 
-            for(int i=history.length()-1;i>=0;i--) {
-                JSONObject bill = history.getJSONObject(i);
+            for (int i = a.length() - 1; i >= 0; i--) {
 
-                s.append(bill.optString("date"))
-                 .append("\n₹")
-                 .append(String.format(Locale.US,
-                     "%.2f",bill.optDouble("total")))
-                 .append("\n\n");
+                JSONObject b = a.getJSONObject(i);
+
+                s.append(
+                        new SimpleDateFormat(
+                                "dd-MM-yyyy HH:mm",
+                                Locale.getDefault()
+                        ).format(
+                                new Date(
+                                        b.optLong("date")
+                                )
+                        )
+                );
+
+                s.append("\nCustomer: ")
+                        .append(
+                                b.optString(
+                                        "customer",
+                                        "Walk-in"
+                                )
+                        );
+
+                s.append("\n₹")
+                        .append(
+                                money(
+                                        b.optDouble("total")
+                                )
+                        );
+
+                s.append("\n\n");
+            }
+
+            if (s.length() == 0) {
+
+                s.append("No saved bills yet.");
             }
 
             new AlertDialog.Builder(this)
-                .setTitle("Bill History")
-                .setMessage(s.length()==0?"No bills saved":s.toString())
-                .setPositiveButton("OK",null)
-                .show();
+                    .setTitle("Bill history")
+                    .setMessage(s.toString())
+                    .setPositiveButton(
+                            "Close",
+                            null
+                    )
+                    .show();
 
-        } catch(Exception e) {
-            toast("History unavailable");
+        } catch (Exception e) {
+
+            toast("Could not load history");
         }
     }
 
-    void showSales() {
+    void dailySales() {
+
         try {
-            JSONArray history = new JSONArray(
-                prefs.getString("history","[]")
+
+            JSONArray a = new JSONArray(
+                    prefs.getString("bills", "[]")
             );
 
-            String today = new SimpleDateFormat(
-                "yyyy-MM-dd",Locale.US
-            ).format(new Date());
+            Calendar c = Calendar.getInstance();
 
-            double sales = 0;
             int count = 0;
 
-            for(int i=0;i<history.length();i++) {
-                JSONObject bill = history.getJSONObject(i);
+            double sum = 0;
 
-                if(bill.optString("date").startsWith(today)) {
-                    sales += bill.optDouble("total");
+            for (int i = 0; i < a.length(); i++) {
+
+                JSONObject b = a.getJSONObject(i);
+
+                Calendar d = Calendar.getInstance();
+
+                d.setTimeInMillis(
+                        b.optLong("date")
+                );
+
+                if (
+                        c.get(Calendar.YEAR)
+                                == d.get(Calendar.YEAR)
+                                &&
+                        c.get(Calendar.DAY_OF_YEAR)
+                                == d.get(Calendar.DAY_OF_YEAR)
+                ) {
+
                     count++;
+
+                    sum += b.optDouble("total");
                 }
             }
 
             new AlertDialog.Builder(this)
-                .setTitle("Today's Sales")
-                .setMessage(
-                    "Bills: "+count+
-                    "\nTotal sales: ₹"+
-                    String.format(Locale.US,"%.2f",sales)
-                )
-                .setPositiveButton("OK",null)
-                .show();
+                    .setTitle("Today's sales")
+                    .setMessage(
+                            "Bills: "
+                                    + count
+                                    + "\nTotal sales: ₹"
+                                    + money(sum)
+                    )
+                    .setPositiveButton(
+                            "Close",
+                            null
+                    )
+                    .show();
 
-        } catch(Exception e) {
-            toast("Sales unavailable");
+        } catch (Exception e) {
+
+            toast("Could not calculate sales");
         }
     }
 
-    void generateQR() {
-        if(finalTotal <= 0) {
-            calculate();
-        }
+    void clearBill() {
 
-        String upi = upiInput.getText().toString().trim();
+        items.clear();
 
-        if(upi.isEmpty()) {
-            toast("Enter your UPI ID first");
-            return;
-        }
+        customer.setText("");
 
-        try {
-            String link =
-                "upi://pay?pa="+Uri.encode(upi)+
-                "&pn="+Uri.encode("Bill Book")+
-                "&am="+String.format(Locale.US,"%.2f",finalTotal)+
-                "&cu=INR";
+        phone.setText("");
 
-            
-Bitmap bitmap = new QRCodeWriter().encode(
-    link, BarcodeFormat.QR_CODE,500,500
-).let();
+        product.setText("");
 
+        price.setText("");
 
-        } catch(Exception e) {
-            toast("QR generation failed");
-        }
-    }
+        qty.setText("1");
 
-    void shareBill() {
-        if(billItems.isEmpty()) {
-            toast("Add items first");
-            return;
-        }
+        discount.setText("0");
 
-        calculate();
+        tax.setText("0");
 
-        Intent intent = new Intent(Intent.ACTION_SEND);
-        intent.setType("text/plain");
-        intent.putExtra(Intent.EXTRA_TEXT,billText);
-
-        startActivity(Intent.createChooser(intent,"Share Bill"));
+        renderItems();
     }
 
     void toast(String s) {
-        Toast.makeText(this,s,Toast.LENGTH_SHORT).show();
+
+        Toast.makeText(
+                this,
+                s,
+                Toast.LENGTH_SHORT
+        ).show();
     }
 }
